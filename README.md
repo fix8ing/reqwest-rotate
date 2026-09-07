@@ -84,6 +84,16 @@ again. `Exhausted::Error` returns `Error::AllExhausted` at once.
 
 A request with a streaming body cannot be cloned, so it is sent once and never re-sent.
 
+## Examples
+
+Each example runs offline against a fake upstream and prints what happened.
+
+```
+cargo run --example api_keys          # keys in a header, rotate on 429
+cargo run --example custom_detector   # key in the query string, quota signalled in a 500 body
+cargo run --example proxies           # IP-limited upstream, one proxy per identity, error when all are spent
+```
+
 ## Features
 
 Cargo features forward one-to-one to `reqwest`: `json`, `form`, `query`, `multipart`,
