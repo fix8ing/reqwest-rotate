@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Body, IntoUrl, Method, Request, Response, ResponseBuilderExt, Version};
 use tracing::{debug, warn};
@@ -115,26 +116,16 @@ impl Client {
         if self.inner.slots.is_empty() {
             return Ok(self.inner.direct.execute(request).await?);
         }
+
         let Some(template) = request.try_clone() else {
-            let idx = self.pick().await?;
-            let (response, verdict) = self.attempt(idx, request).await?;
-            match verdict {
-                Verdict::Ok => {}
-                Verdict::Depleted { retry_after } => self.cool(idx, retry_after),
-                Verdict::Exhausted { retry_after } => {
-                    self.cool(idx, retry_after);
-                    warn!(
-                        identity = idx,
-                        "request body is not replayable; returning the rate-limited response"
-                    );
-                }
-            }
-            return Ok(response);
+            return self.send_once(request).await;
         };
+
         let mut next = request;
         loop {
             let idx = self.pick().await?;
             let (response, verdict) = self.attempt(idx, next).await?;
+
             match verdict {
                 Verdict::Ok => return Ok(response),
                 Verdict::Depleted { retry_after } => {
@@ -151,6 +142,26 @@ impl Client {
         }
     }
 
+    /// Send a request whose body cannot be replayed: one attempt, no rotation.
+    async fn send_once(&self, request: Request) -> Result<Response, Error> {
+        let idx = self.pick().await?;
+        let (response, verdict) = self.attempt(idx, request).await?;
+
+        match verdict {
+            Verdict::Ok => {}
+            Verdict::Depleted { retry_after } => self.cool(idx, retry_after),
+            Verdict::Exhausted { retry_after } => {
+                self.cool(idx, retry_after);
+                warn!(
+                    identity = idx,
+                    "request body is not replayable; returning the rate-limited response"
+                );
+            }
+        }
+
+        Ok(response)
+    }
+
     /// Send one request under one identity and classify the response.
     async fn attempt(
         &self,
@@ -160,27 +171,16 @@ impl Client {
         let slot = &self.inner.slots[idx];
         slot.identity.apply(&mut request);
         let response = slot.client.execute(request).await?;
+
         let detector = &self.inner.detector;
         if !detector.needs_body() {
             let verdict = detector.classify(response.status(), response.headers(), &[]);
             return Ok((response, verdict));
         }
-        let status = response.status();
-        let version = response.version();
-        let url = response.url().clone();
-        let headers = response.headers().clone();
-        let extensions = response.extensions().clone();
-        let body = response.bytes().await?;
-        let verdict = detector.classify(status, &headers, &body);
-        let mut rebuilt = http::Response::builder()
-            .status(status)
-            .version(version)
-            .url(url)
-            .body(body)
-            .expect("status and version come from a received response");
-        *rebuilt.headers_mut() = headers;
-        rebuilt.extensions_mut().extend(extensions);
-        Ok((Response::from(rebuilt), verdict))
+
+        let (response, body) = buffer(response).await?;
+        let verdict = detector.classify(response.status(), response.headers(), &body);
+        Ok((response, verdict))
     }
 
     /// The next identity that is not cooling, honouring the exhausted policy.
@@ -190,6 +190,7 @@ impl Client {
                 Ok(idx) => return Ok(idx),
                 Err(soonest) => {
                     let retry_after = soonest.saturating_duration_since(Instant::now());
+
                     match self.inner.on_exhausted {
                         Exhausted::Error => return Err(Error::AllExhausted { retry_after }),
                         Exhausted::Wait => {
@@ -208,10 +209,12 @@ impl Client {
         let now = Instant::now();
         let count = inner.slots.len();
         let start = inner.active.load(Ordering::Relaxed);
+
         let mut soonest: Option<Instant> = None;
         for offset in 0..count {
             let idx = (start + offset) % count;
             let mut cooling = lock(&inner.slots[idx].cooling_until);
+
             match *cooling {
                 Some(until) if until > now => {
                     soonest = Some(soonest.map_or(until, |s| s.min(until)));
@@ -224,6 +227,7 @@ impl Client {
                 }
             }
         }
+
         Err(soonest.expect("every slot is cooling, so one reset is soonest"))
     }
 
@@ -231,10 +235,12 @@ impl Client {
     fn cool(&self, idx: usize, retry_after: Option<Duration>) {
         let inner = &*self.inner;
         let wait = retry_after.unwrap_or(inner.cooldown);
+
         *lock(&inner.slots[idx].cooling_until) = Some(Instant::now() + wait);
         inner
             .active
             .store((idx + 1) % inner.slots.len(), Ordering::Relaxed);
+
         debug!(
             identity = idx,
             cooldown_secs = wait.as_secs(),
@@ -356,6 +362,7 @@ impl ClientBuilder {
             Some(f) => f(builder),
             None => builder,
         };
+
         let direct = configure(reqwest::ClientBuilder::new()).build()?;
         let mut slots = Vec::with_capacity(identities.len());
         for identity in identities {
@@ -365,12 +372,14 @@ impl ClientBuilder {
                     .build()?,
                 None => direct.clone(),
             };
+
             slots.push(Slot {
                 identity,
                 client,
                 cooling_until: Mutex::new(None),
             });
         }
+
         Ok(Client {
             inner: Arc::new(Inner {
                 direct,
@@ -514,6 +523,27 @@ impl fmt::Debug for RequestBuilder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
+}
+
+/// Read the whole body, then rebuild the response around it so the caller can still read it.
+async fn buffer(response: Response) -> Result<(Response, Bytes), reqwest::Error> {
+    let status = response.status();
+    let version = response.version();
+    let url = response.url().clone();
+    let headers = response.headers().clone();
+    let extensions = response.extensions().clone();
+    let body = response.bytes().await?;
+
+    let mut rebuilt = http::Response::builder()
+        .status(status)
+        .version(version)
+        .url(url)
+        .body(body.clone())
+        .expect("status and version come from a received response");
+    *rebuilt.headers_mut() = headers;
+    rebuilt.extensions_mut().extend(extensions);
+
+    Ok((Response::from(rebuilt), body))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

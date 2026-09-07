@@ -57,6 +57,7 @@ impl Identity {
                 headers.append(name.clone(), value.clone());
             }
         }
+
         if !self.query.is_empty() {
             let url = request.url_mut();
             let overridden: HashSet<&str> = self.query.iter().map(|(k, _)| k.as_str()).collect();
@@ -65,6 +66,7 @@ impl Identity {
                 .filter(|(k, _)| !overridden.contains(k.as_ref()))
                 .map(|(k, v)| (k.into_owned(), v.into_owned()))
                 .collect();
+
             let mut pairs = url.query_pairs_mut();
             pairs.clear();
             for (k, v) in &kept {
@@ -74,6 +76,7 @@ impl Identity {
                 pairs.append_pair(k, v);
             }
         }
+
         if let Some(stamp) = &self.stamp {
             stamp(request);
         }
@@ -119,6 +122,7 @@ impl IdentityBuilder {
         if self.error.is_some() {
             return self;
         }
+
         let name = HeaderName::try_from(name).map_err(Into::into);
         let value = HeaderValue::try_from(value).map_err(Into::into);
         match (name, value) {
@@ -128,6 +132,7 @@ impl IdentityBuilder {
             }
             (Err(e), _) | (_, Err(e)) => self.error = Some(e),
         }
+
         self
     }
 
@@ -155,6 +160,7 @@ impl IdentityBuilder {
         if let Some(e) = self.error {
             return Err(IdentityError::Header(e));
         }
+
         let empty = self.headers.is_empty()
             && self.query.is_empty()
             && self.proxy.is_none()
@@ -162,6 +168,7 @@ impl IdentityBuilder {
         if empty {
             return Err(IdentityError::Empty);
         }
+
         Ok(Identity {
             headers: self.headers,
             query: self.query,
@@ -219,7 +226,9 @@ mod tests {
         let mut req = request("http://h/p");
         req.headers_mut()
             .insert("x-api-key", "theirs".parse().unwrap());
+
         id.apply(&mut req);
+
         let values: Vec<_> = req.headers().get_all("x-api-key").iter().collect();
         assert_eq!(values, ["mine"]);
     }
@@ -231,7 +240,9 @@ mod tests {
             .build()
             .unwrap();
         let mut req = request("http://h/p?limit=5&api_key=theirs&page=2");
+
         id.apply(&mut req);
+
         assert_eq!(req.url().query(), Some("limit=5&page=2&api_key=mine"));
     }
 
@@ -239,7 +250,9 @@ mod tests {
     fn query_on_bare_url_adds_it() {
         let id = Identity::builder().query("api_key", "k").build().unwrap();
         let mut req = request("http://h/p");
+
         id.apply(&mut req);
+
         assert_eq!(req.url().as_str(), "http://h/p?api_key=k");
     }
 
@@ -254,7 +267,9 @@ mod tests {
             .build()
             .unwrap();
         let mut req = request("http://h/p");
+
         id.apply(&mut req);
+
         assert_eq!(req.url().as_str(), "http://h/p/stamped?a=1");
     }
 
@@ -266,6 +281,7 @@ mod tests {
             .build()
             .unwrap();
         let text = format!("{id:?}");
+
         assert!(text.contains("x-api-key"));
         assert!(text.contains("token"));
         assert!(!text.contains("secret"));

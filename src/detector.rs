@@ -101,11 +101,13 @@ impl Detector for DefaultDetector {
                 retry_after: retry_after(headers),
             };
         }
+
         if status.is_success() && remaining_is_zero(headers) {
             return Verdict::Depleted {
                 retry_after: retry_after(headers),
             };
         }
+
         Verdict::Ok
     }
 }
@@ -123,6 +125,7 @@ pub fn retry_after(headers: &HeaderMap) -> Option<Duration> {
     if let Some(secs) = header_number(headers, "ratelimit-reset") {
         return Some(seconds(secs));
     }
+
     let reset = header_number(headers, "x-ratelimit-reset")?;
     if reset >= UNIX_EPOCH_THRESHOLD {
         let now = SystemTime::now()
@@ -131,6 +134,7 @@ pub fn retry_after(headers: &HeaderMap) -> Option<Duration> {
             .as_secs_f64();
         return Some(seconds(reset - now));
     }
+
     Some(seconds(reset))
 }
 
@@ -217,7 +221,9 @@ mod tests {
             .unwrap()
             .as_secs();
         let reset = (now + 90).to_string();
+
         let delta = retry_after(&headers(&[("x-ratelimit-reset", &reset)])).unwrap();
+
         assert!((89..=91).contains(&delta.as_secs()), "{delta:?}");
     }
 
@@ -242,6 +248,7 @@ mod tests {
                 Verdict::Ok
             }
         });
+
         assert!(!detector.needs_body());
         assert_eq!(
             detector.classify(StatusCode::SERVICE_UNAVAILABLE, &headers(&[]), &[]),
@@ -258,6 +265,7 @@ mod tests {
                 Verdict::Ok
             }
         };
+
         assert!(Detector::needs_body(&detector));
         assert_eq!(
             detector.classify(StatusCode::OK, &headers(&[]), b"quota"),

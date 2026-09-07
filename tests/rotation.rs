@@ -42,11 +42,13 @@ async fn without_identities_behaves_like_reqwest() {
         .await;
 
     let client = Client::new();
+
     let response = client
         .get(format!("{}/data", server.uri()))
         .send()
         .await
         .unwrap();
+
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.url().path(), "/data");
     assert_eq!(response.text().await.unwrap(), "hi");
@@ -67,6 +69,7 @@ async fn identity_headers_and_configure_are_applied() {
         .configure(|b| b.user_agent("rotate-test"))
         .build()
         .unwrap();
+
     assert_eq!(fetch(&client, &server).await.unwrap(), "k1");
 }
 
@@ -90,13 +93,16 @@ async fn identity_query_appends_and_overrides() {
         .await;
 
     let identity = Identity::builder().query("api_key", "k1").build().unwrap();
+
     let client = Client::builder().identity(identity).build().unwrap();
+
     let response = client
         .get(format!("{}/data", server.uri()))
         .query(&[("limit", "5"), ("api_key", "stale")])
         .send()
         .await
         .unwrap();
+
     assert_eq!(response.text().await.unwrap(), "k1");
 }
 
@@ -117,12 +123,15 @@ async fn stamp_can_put_the_key_in_the_path() {
         })
         .build()
         .unwrap();
+
     let client = Client::builder().identity(identity).build().unwrap();
+
     let response = client
         .get(format!("{}/v3/KEY/data", server.uri()))
         .send()
         .await
         .unwrap();
+
     assert_eq!(response.text().await.unwrap(), "k1");
 }
 
@@ -145,6 +154,7 @@ async fn rotates_on_429_and_stays_rotated() {
         .identity(key("k2"))
         .build()
         .unwrap();
+
     assert_eq!(fetch(&client, &server).await.unwrap(), "k2");
     assert_eq!(fetch(&client, &server).await.unwrap(), "k2");
 }
@@ -169,6 +179,7 @@ async fn all_exhausted_error_policy_returns_at_once() {
         .exhausted(Exhausted::Error)
         .build()
         .unwrap();
+
     let err = fetch(&client, &server).await.unwrap_err();
     match err {
         Error::AllExhausted { retry_after } => {
@@ -201,8 +212,11 @@ async fn all_exhausted_wait_policy_sleeps_until_reset() {
         .exhausted(Exhausted::Wait)
         .build()
         .unwrap();
+
     let started = Instant::now();
+
     let body = fetch(&client, &server).await.unwrap();
+
     assert!(body == "k1" || body == "k2", "{body}");
     assert!(
         started.elapsed() >= Duration::from_millis(900),
@@ -232,17 +246,20 @@ async fn body_detector_rotates_and_preserves_the_response() {
             Verdict::Ok
         }
     };
+
     let client = Client::builder()
         .identity(key("k1"))
         .identity(key("k2"))
         .detector(detector)
         .build()
         .unwrap();
+
     let response = client
         .get(format!("{}/data", server.uri()))
         .send()
         .await
         .unwrap();
+
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.url().as_str(), format!("{}/data", server.uri()));
     assert_eq!(response.headers()["x-custom"], "yes");
@@ -272,6 +289,7 @@ async fn depleted_returns_the_response_then_rotates() {
         .identity(key("k2"))
         .build()
         .unwrap();
+
     assert_eq!(fetch(&client, &server).await.unwrap(), "k1");
     assert_eq!(fetch(&client, &server).await.unwrap(), "k2");
 }
@@ -292,12 +310,15 @@ async fn cooldown_readmits_an_identity_without_retry_after() {
         .exhausted(Exhausted::Error)
         .build()
         .unwrap();
+
     let err = fetch(&client, &server).await.unwrap_err();
+
     assert!(
         matches!(err, Error::AllExhausted { retry_after } if retry_after <= Duration::from_secs(1))
     );
 
     tokio::time::sleep(Duration::from_millis(1100)).await;
+
     assert_eq!(fetch(&client, &server).await.unwrap(), "k1");
 }
 
@@ -315,12 +336,15 @@ async fn proxy_identity_routes_through_the_proxy() {
         .proxy(Proxy::all(server.uri()).unwrap())
         .build()
         .unwrap();
+
     let client = Client::builder().identity(identity).build().unwrap();
+
     let response = client
         .get("http://example.invalid/data")
         .send()
         .await
         .unwrap();
+
     assert_eq!(response.text().await.unwrap(), "via-proxy");
 }
 
@@ -339,6 +363,8 @@ async fn from_reqwest_client_passes_through() {
         .user_agent("wrapped")
         .build()
         .unwrap();
+
     let client = Client::from(inner);
+
     assert_eq!(fetch(&client, &server).await.unwrap(), "hi");
 }
