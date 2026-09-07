@@ -1,0 +1,50 @@
+[package]
+name = "reqwest-rotate"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A drop-in reqwest client that rotates identities when the active one is rate-limited"
+license = "MIT OR Apache-2.0"
+keywords = ["reqwest", "rate-limit", "http", "proxy", "client"]
+categories = ["web-programming::http-client"]
+
+[dependencies]
+reqwest = { version = "0.13", default-features = false }
+http = "1"
+bytes = "1"
+serde = { version = "1", optional = true }
+thiserror = "2"
+tokio = { version = "1", features = ["time"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+wiremock = "0.6"
+
+[features]
+default = ["default-tls", "charset", "http2", "system-proxy", "query"]
+
+# Features forwarded to reqwest. Enable the same set you would on reqwest itself.
+default-tls = ["reqwest/default-tls"]
+rustls = ["reqwest/rustls"]
+rustls-no-provider = ["reqwest/rustls-no-provider"]
+native-tls = ["reqwest/native-tls"]
+native-tls-vendored = ["reqwest/native-tls-vendored"]
+charset = ["reqwest/charset"]
+http2 = ["reqwest/http2"]
+system-proxy = ["reqwest/system-proxy"]
+socks = ["reqwest/socks"]
+cookies = ["reqwest/cookies"]
+gzip = ["reqwest/gzip"]
+brotli = ["reqwest/brotli"]
+zstd = ["reqwest/zstd"]
+deflate = ["reqwest/deflate"]
+stream = ["reqwest/stream"]
+hickory-dns = ["reqwest/hickory-dns"]
+query = ["reqwest/query", "dep:serde"]
+form = ["reqwest/form", "dep:serde"]
+json = ["reqwest/json", "dep:serde"]
+multipart = ["reqwest/multipart"]
+
+[package.metadata.docs.rs]
+features = ["json", "form", "multipart", "stream", "cookies", "gzip", "brotli", "zstd", "deflate", "socks", "hickory-dns"]
