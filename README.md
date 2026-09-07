@@ -100,4 +100,3 @@ Cargo features forward one-to-one to `reqwest`: `json`, `form`, `query`, `multip
 `rustls`, `native-tls`, `gzip`, `brotli`, `zstd`, `deflate`, `cookies`, `stream`, `socks`,
 `hickory-dns`. The defaults match `reqwest` plus `query`.
 
-See [SPEC.md](SPEC.md) for the full design.

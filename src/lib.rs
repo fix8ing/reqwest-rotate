@@ -24,8 +24,6 @@
 //! # Ok(())
 //! # }
 //! ```
-//!
-//! See `SPEC.md` in the repository for the full design.
 
 #![warn(missing_docs)]
 
